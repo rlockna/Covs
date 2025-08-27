@@ -1,0 +1,63 @@
+name: build-macos-app
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Homebrew Poppler (for pdf2image)
+        run: |
+          brew update
+          brew install poppler
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .app with PyInstaller
+        working-directory: ./src
+        run: |
+          # --windowed : macOS GUI app (no console)
+          # --name     : app name
+          # --icon     : optional; remove if no icon.icns at repo root
+          if [ -f "../icon.icns" ]; then
+            pyinstaller --windowed --name "PDF Converter" --icon ../icon.icns main.py
+          else
+            pyinstaller --windowed --name "PDF Converter" main.py
+          fi
+
+      - name: Show build output
+        run: ls -la src/dist
+
+      # (ออปชัน) ad-hoc codesign เพื่อลดปัญหา deep bundle; ยังไม่ใช่ notarize
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - "src/dist/PDF Converter.app" || true
+
+      - name: Create ZIP artifact
+        run: |
+          cd src/dist
+          ditto -c -k --sequesterRsrc --keepParent "PDF Converter.app" "PDF-Converter-macOS.zip"
+          ls -la
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Converter-macOS
+          path: src/dist/PDF-Converter-macOS.zip
+          if-no-files-found: error
